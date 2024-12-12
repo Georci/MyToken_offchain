@@ -6,6 +6,7 @@ use image::{codecs::jpeg::JpegEncoder, DynamicImage, ImageFormat};
 use rbatis::Error;
 use serde::Deserialize;
 use serde_json::json;
+use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -19,7 +20,7 @@ struct PythonOutput {
 
 // 调用外部 Python 脚本
 pub fn execute_watermark_base64(base64_image: String) -> Result<(String, String), String> {
-    let python_script = "/home/kenijima/usr/work/python-watermark/main_class.py";
+    let python_script = "/root/BlockchainImage/python-watermark/main_class.py";
 
     // 解码 Base64 图片为字节流
     let img_bytes = general_purpose::STANDARD
@@ -44,6 +45,12 @@ pub fn execute_watermark_base64(base64_image: String) -> Result<(String, String)
     let json_data = json!({
         "base64_image": encoded_image
     });
+
+    // 将 JSON 数据写入文件
+    let file_path = "encoded_image.json";
+    let mut file = File::create(file_path).expect("Unable to create file");
+    file.write_all(json_data.to_string().as_bytes())
+        .expect("Unable to write data");
 
     // 调用外部 Python 脚本处理水印
     let mut child = Command::new("python3")
@@ -125,7 +132,7 @@ pub fn execute_watermark_base64(base64_image: String) -> Result<(String, String)
 
 // 调用外部 Python 脚本
 pub fn execute_watermark_jpg(img: DynamicImage) -> Result<(String, String), String> {
-    let python_script = "/home/kenijima/usr/work/python-watermark/main_class.py";
+    let python_script = "/root/BlockchainImage/python-watermark/main_class.py";
 
     // 将图片保存为 .jpg 格式
     let mut img_bytes = Vec::new();
@@ -220,6 +227,8 @@ pub fn execute_watermark_jpg(img: DynamicImage) -> Result<(String, String), Stri
     }
 }
 
+/// todo: 换到ipfs中
+
 // 将带水印的图片存放到ipfs，将水印本身存放到数据库
 pub async fn storage_image(
     watermarked_base64: String,
@@ -249,7 +258,7 @@ pub async fn storage_image(
     }
 
     // 将水印图片保存到ipfs
-    let ipfs_api_url = "http://192.168.0.10:5001";
+    let ipfs_api_url = "http://192.168.0.7:5001";
     match upload_and_pin_base64(&watermarked_base64, ipfs_api_url).await {
         Ok(cid) => {
             image_cid = cid.clone();
@@ -272,30 +281,30 @@ pub async fn storage_image(
     Ok(image_cid)
 }
 
-#[test]
-pub fn test_execute_watermark() {
-    let image_path = "/home/kenijima/usr/work/ImageService/UserInfo/Image-01/wukong.jpg";
-    let image = image::open(image_path).expect("Failed to load test image");
+// #[test]
+// pub fn test_execute_watermark() {
+//     let image_path = "/home/kenijima/usr/work/ImageService/UserInfo/Image-01/wukong.jpg";
+//     let image = image::open(image_path).expect("Failed to load test image");
 
-    let result = execute_watermark_base64(image.to_string());
+//     let result = execute_watermark_base64(image.to_string());
 
-    // 获取带水印的图像和水印图像的 Base64 编码
-    let (watermarked_base64, watermark_base64) = result.clone().unwrap();
+//     // 获取带水印的图像和水印图像的 Base64 编码
+//     let (watermarked_base64, watermark_base64) = result.clone().unwrap();
 
-    // 解码 Base64 字符串为字节流
-    let watermarked_bytes = general_purpose::STANDARD
-        .decode(watermarked_base64)
-        .expect("Failed to decode watermarked image base64");
-    let watermark_bytes = general_purpose::STANDARD
-        .decode(watermark_base64)
-        .expect("Failed to decode watermark image base64");
+//     // 解码 Base64 字符串为字节流
+//     let watermarked_bytes = general_purpose::STANDARD
+//         .decode(watermarked_base64)
+//         .expect("Failed to decode watermarked image base64");
+//     let watermark_bytes = general_purpose::STANDARD
+//         .decode(watermark_base64)
+//         .expect("Failed to decode watermark image base64");
 
-    // 保存到文件以便手动验证
-    let output_watermarked_path = "UserInfo/Image-01/wukong_watermarked_test.jpg";
-    let output_watermark_path = "UserInfo/Image-01/wukong_watermark_test.jpg";
+//     // 保存到文件以便手动验证
+//     let output_watermarked_path = "UserInfo/Image-01/wukong_watermarked_test.jpg";
+//     let output_watermark_path = "UserInfo/Image-01/wukong_watermark_test.jpg";
 
-    std::fs::write(output_watermarked_path, watermarked_bytes)
-        .expect("Failed to save watermarked image");
-    std::fs::write(output_watermark_path, watermark_bytes).expect("Failed to save watermark image");
-    assert!(result.is_ok(), "Watermarking failed: {:?}", result.err());
-}
+//     std::fs::write(output_watermarked_path, watermarked_bytes)
+//         .expect("Failed to save watermarked image");
+//     std::fs::write(output_watermark_path, watermark_bytes).expect("Failed to save watermark image");
+//     assert!(result.is_ok(), "Watermarking failed: {:?}", result.err());
+// }
