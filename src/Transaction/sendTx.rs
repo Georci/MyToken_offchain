@@ -382,45 +382,7 @@ impl Handler {
         }
         Ok(contract_method_result)
     }
-
-    // 调用修改合约状态方法的通用接口
-    // pub async fn call_function<C>(
-    //     &self,
-    //     call: C,
-    // ) -> Result<(), Box<dyn std::error::Error>>
-    // where
-    //     C: SolCall,
-    // {
-    //     let data = call.encode(); // 使用正确的编码方法
-
-    //     let tx = TransactionRequest {
-    //         to: Some(self.contract_address.into()), // 转换 Address 为 TxKind
-    //         input: Some(data.into()), // 使用 'input' 字段
-    //         // 您可能需要指定 'from' 地址、'gas'、'gas_price' 等参数
-    //         ..Default::default()
-    //     };
-
-    //     let tx_hash = self.contract.provider().send_transaction(tx).await?;
-    //     println!("Transaction sent: {:?}", tx_hash);
-
-    //     Ok(())
-    // }
-
-    // 调用只读合约方法的通用接口
-    // pub async fn query_function_static<T, R>(
-    //     &self,
-    //     method: fn(&ImageTokenInstance<Http<Client>, RootProvider<Http<Client>>>) -> T, // 具体合约方法
-    //     params: T,                       // 参数类型
-    // ) -> Result<R, Box<dyn std::error::Error>>
-    // where
-    //     T: SolType<RustType = R> + SolValue + Provider,
-    // {
-    //     // 调用合约方法
-    //     let call = method(&self.contract).call(params).await?;
-    //     Ok(call)
-    // }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,67 +397,57 @@ mod tests {
             .await
             .unwrap();
 
-        let result = handler
-            .match_func(ContractMethod::_imageInfo {
-                tokenId: U256::from(0),
-            })
-            .await;
-        println!("result is {:?}", result);
+        // let result = handler
+        //     .match_func(ContractMethod::_imageInfo {
+        //         tokenId: U256::from(0),
+        //     })
+        //     .await;
+        // println!("result is {:?}", result);
 
-        // 构造函数参数
-        // let to: Address = "0x6d0d470a22c15a14817c51116932312a00ff00c8"
-        //     .parse()
-        //     .unwrap(); // 替换为实际的接收者地址
-        // println!("wuxizhi2");
+        let _tokenURIs = vec!["QmcbD1QEKKWkQQumdrhVUBHgdkPyU5GYzwMk5PkoRzQiP7".to_string()];
+        let to: Address = "0x6d0d470a22c15a14817c51116932312a00ff00c8"
+            .parse()
+            .unwrap(); // 替换为实际的接收者地址
+        let quantity = U256::from(1); // 一次 mint 一个
+        let watermarks = vec!["Gzhu".to_string()];
+        let capture_times = vec![U256::from(10)];
+        let capture_devices = vec!["huawei_mate60".to_string()];
+        let capture_companies = vec!["huawei".to_string()];
+        let submission_times = vec![U256::from(20)];
+        let submission_receivers = vec!["xiaomi".to_string()];
+        let func_call = ContractMethod::safeMint {
+            to,
+            quantity,
+            _tokenURIs,
+            watermarks: Some(watermarks),
+            captureTimes: Some(capture_times),
+            captureDevices: Some(capture_devices),
+            captureCompanies: Some(capture_companies),
+            submissionTimes: Some(submission_times),
+            submissionReceivers: Some(submission_receivers),
+        };
 
-        // let quantity = 1u64; // 一次 mint 一个
-        // let token_urls =
-        //     vec!["https://ipfs.io/ipfs/QmRackxfCSTUg1GBSFGy6xMhFzNcfnR5vJDY8HSmaySNXF".to_string()];
-        // let watermarks = vec!["Gzhu".to_string()];
-        // let capture_times = vec![U256::from(10)];
-        // let capture_devices = vec!["huawei_mate60".to_string()];
-        // let capture_companies = vec!["huawei".to_string()];
-        // let submission_times = vec![U256::from(20)];
-        // let submission_receivers = vec!["xiaomi".to_string()];
-
-        // let call_params = (
-        //     to,
-        //     quantity,
-        //     token_urls,
-        //     watermarks,
-        //     capture_times,
-        //     capture_devices,
-        //     capture_companies,
-        //     submission_times,
-        //     submission_receivers,
-        // );
-
-        // let receipt = handler
-        //     .call_function("safeMint", call_params)
-        //     .await
-        //     .unwrap();
-        // println!("wuxizhi3");
-        // println!("receipt is {:?}", receipt);
+        let result = handler.match_func(func_call).await.unwrap();
+        println!("result: {:?}", result);
     }
 
-    //     #[tokio::test]
-    //     async fn test_getTotalToken() {
-    //         let http_url = "http://localhost:8545";
-    //         let pk = "0x3ba5c6a17da00c75e9377e03ae98aa3dcdca7c4e537c84399125dfefa89be521";
-    //         let abi_path = "./ImageToken_sol_MyToken.abi";
-    //         let contract_address = "0xa6a0110367e24c541FC29124E8E89E3556263177";
-    //         let handler = Handler::initialize_contract(http_url, pk, abi_path, contract_address)
-    //             .await
-    //             .unwrap();
+        #[tokio::test]
+        async fn test_getTotalToken() {
+            let http_url = "http://localhost:8545";
+            let pk = "0x3ba5c6a17da00c75e9377e03ae98aa3dcdca7c4e537c84399125dfefa89be521";
+            let user_address = "0x6d0d470a22c15a14817c51116932312a00ff00c8";
+            let contract_address = "0xa6a0110367e24c541FC29124E8E89E3556263177";
+            let handler = Handler::initialize_contract(http_url, pk, user_address, contract_address)
+                .await
+                .unwrap();
 
-    //         let call_params = ();
-
-    //         let total_supply: U256 = handler
-    //             .query_function("totalSupply", call_params)
-    //             .await
-    //             .unwrap();
-    //         println!("total_supply is {:?}", total_supply);
-    //     }
+            let func_call = ContractMethod::totalSupply;
+            let total_supply = handler
+                .match_func(func_call)
+                .await
+                .unwrap();
+            println!("total_supply is {:?}", total_supply);
+        }
 
     //     #[tokio::test]
     //     async fn test_getImageInfo() {

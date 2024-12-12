@@ -18,6 +18,7 @@
 // //! This example demonstrates how to interact with a contract that is already deployed onchain using
 // //! the `ContractInstance` interface.
 use BlockchainImageService::DataBase::*;
+use BlockchainImageService::Router::onchain_router::*;
 use BlockchainImageService::Router::Image_routers::*;
 use BlockchainImageService::Router::User_routers::*;
 
@@ -32,6 +33,16 @@ fn index() -> &'static str {
 #[launch]
 async fn rocket() -> _ {
     // let rb = get_db().await;
-    rocket::build().mount("/", routes![login, register, upload_image])
+    rocket::build().mount(
+        "/",
+        routes![
+            login,
+            register,
+            upload_image,
+            get_image,
+            upload_imageInfo,
+            get_imageInfo
+        ],
+    )
     // .manage(rb)
 }

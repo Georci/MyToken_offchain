@@ -114,7 +114,7 @@ pub fn get_cid() -> String {
 #[tokio::test]
 async fn test_upload_and_pin_file() -> Result<(), Box<dyn Error>> {
     let file_path = "/root/BlockchainImage/UserInfo/Image-01/wukong.jpg";
-    let ipfs_api_url = "http://192.168.0.10:5001";
+    let ipfs_api_url = "http://192.168.0.7:5001";
 
     let cid = upload_and_pin_file(file_path, ipfs_api_url).await?;
 
@@ -156,12 +156,19 @@ pub async fn download_file_by_cid_as_base64(cid: &str) -> Result<String, Box<dyn
     // 创建 HTTP 客户端
     let client = Client::new();
 
-    let ipfs_api_url = "http://192.168.0.10:5001"; // 替换为你的 IPFS 节点地址
-                                                   // 构造下载 URL（通过 IPFS API 或公共网关）
-    let url = format!("{}/api/v0/cat?arg={}", ipfs_api_url, cid);
+    let ipfs_api_url = "http://192.168.0.7:5001"; // 替换为你的 IPFS 节点地址
+    // 构造下载 URL（通过 IPFS API 或公共网关）
+    // let url = format!("{}/api/v0/cat?arg={}", ipfs_api_url, cid);
+    let url = format!(
+        "{}/api/v0/cat?arg={}",
+        ipfs_api_url.trim_end_matches('/'),
+        cid
+    );
+
+    println!("Request URL: {}", url);
 
     // 发送 GET 请求下载文件
-    let res = client.get(&url).send().await?;
+    let res = client.post(&url).send().await?;
     if !res.status().is_success() {
         return Err(format!("Failed to download file: HTTP {}", res.status()).into());
     }
@@ -177,11 +184,24 @@ pub async fn download_file_by_cid_as_base64(cid: &str) -> Result<String, Box<dyn
 async fn test_download_file_by_cid() -> Result<(), Box<dyn Error>> {
     // 示例 CID
     let cid = "QmRackxfCSTUg1GBSFGy6xMhFzNcfnR5vJDY8HSmaySNXF";
-    let ipfs_api_url = "http://192.168.0.10:5001"; // 替换为你的 IPFS 节点地址
+    let ipfs_api_url = "http://192.168.0.7:5001"; // 替换为你的 IPFS 节点地址
     let output_path = "downloaded_image.jpg";
 
     // 下载文件
     download_file_by_cid(cid, ipfs_api_url, output_path).await?;
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_download_file_by_cid_as_base64() -> Result<(), Box<dyn Error>> {
+    // 示例 CID
+    let cid = "QmcbD1QEKKWkQQumdrhVUBHgdkPyU5GYzwMk5PkoRzQiP7";
+    let ipfs_api_url = "http://192.168.0.7:5001"; // 替换为你的 IPFS 节点地址
+    let output_path = "downloaded_image.jpg";
+
+    // 下载文件
+    let download_result = download_file_by_cid_as_base64(cid).await?;
+    println!("download_result IS {:?}", download_result);
     Ok(())
 }
