@@ -46,12 +46,6 @@ pub fn execute_watermark_base64(base64_image: String) -> Result<(String, String)
         "base64_image": encoded_image
     });
 
-    // 将 JSON 数据写入文件
-    let file_path = "encoded_image.json";
-    let mut file = File::create(file_path).expect("Unable to create file");
-    file.write_all(json_data.to_string().as_bytes())
-        .expect("Unable to write data");
-
     // 调用外部 Python 脚本处理水印
     let mut child = Command::new("python3")
         .arg(python_script)

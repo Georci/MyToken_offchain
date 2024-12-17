@@ -1,4 +1,3 @@
-use alloy::primitives::Address;
 use log::{log, LevelFilter};
 use rbatis::crud;
 use rbatis::dark_std::defer;

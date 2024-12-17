@@ -431,23 +431,20 @@ mod tests {
         println!("result: {:?}", result);
     }
 
-        #[tokio::test]
-        async fn test_getTotalToken() {
-            let http_url = "http://localhost:8545";
-            let pk = "0x3ba5c6a17da00c75e9377e03ae98aa3dcdca7c4e537c84399125dfefa89be521";
-            let user_address = "0x6d0d470a22c15a14817c51116932312a00ff00c8";
-            let contract_address = "0xa6a0110367e24c541FC29124E8E89E3556263177";
-            let handler = Handler::initialize_contract(http_url, pk, user_address, contract_address)
-                .await
-                .unwrap();
+    #[tokio::test]
+    async fn test_getTotalToken() {
+        let http_url = "http://localhost:8545";
+        let pk = "0x3ba5c6a17da00c75e9377e03ae98aa3dcdca7c4e537c84399125dfefa89be521";
+        let user_address = "0x6d0d470a22c15a14817c51116932312a00ff00c8";
+        let contract_address = "0xa6a0110367e24c541FC29124E8E89E3556263177";
+        let handler = Handler::initialize_contract(http_url, pk, user_address, contract_address)
+            .await
+            .unwrap();
 
-            let func_call = ContractMethod::totalSupply;
-            let total_supply = handler
-                .match_func(func_call)
-                .await
-                .unwrap();
-            println!("total_supply is {:?}", total_supply);
-        }
+        let func_call = ContractMethod::totalSupply;
+        let total_supply = handler.match_func(func_call).await.unwrap();
+        println!("total_supply is {:?}", total_supply);
+    }
 
     //     #[tokio::test]
     //     async fn test_getImageInfo() {

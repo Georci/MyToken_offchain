@@ -1,5 +1,6 @@
 use crate::DataBase::get_db;
 use crate::DataBase::Users;
+use crate::Error::UserError;
 use crate::IdentityAuthentication::Jwt::generate_token;
 use crate::UserInfo::Generate_address::generate_random_account;
 use alloy::hex;
@@ -17,13 +18,13 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 // 注册用户
-pub async fn register_user(username: &str, password: &str) -> Result<(String, String), Error> {
+pub async fn register_user(username: &str, password: &str) -> Result<(String, String), UserError> {
     // 获取数据库连接池
     let rb = get_db().await;
 
     // 检查用户是否已存在
     match Users::select_by_username(rb, username).await {
-        Ok(Some(user)) => Err(Error::E("User already exists".into())),
+        Ok(Some(user)) => Err(UserError::UserAlreadyExists),
         Ok(None) => {
             // 为新用户生成账户（调用您已有的函数 `generate_random_account`）
             let (private_key, address) = generate_random_account();
@@ -42,7 +43,9 @@ pub async fn register_user(username: &str, password: &str) -> Result<(String, St
                 address: Some(format!("0x{}", hex::encode(address)).to_string()),
                 privatekey: Some(format!("0x{}", hex::encode(private_key)).to_string()),
             };
-            let data = Users::insert(rb, &table).await?;
+            let data = Users::insert(rb, &table)
+                .await
+                .map_err(|_| UserError::DatabaseError(Error::E("insert data error".into())))?;
             println!("insert = {}", json!(data));
             // 返回以太坊地址
             Ok((
@@ -50,21 +53,19 @@ pub async fn register_user(username: &str, password: &str) -> Result<(String, St
                 format!("0x{}", hex::encode(private_key)),
             ))
         }
-        Err(e) => {
-            eprintln!("Error querying user: {:?}", e);
-            Err(Error::E("Database query error".into()))
-        }
+        Err(e) => Err(UserError::DatabaseError(Error::E(
+            "Database query error".into(),
+        ))),
     }
 }
 
-pub async fn login_user(username: &str, password: &str) -> Result<(String, String), Error> {
+pub async fn login_user(username: &str, password: &str) -> Result<(String, String), UserError> {
     // 获取数据库连接池
     let rb = get_db().await;
 
     // 获取用户数据
     match Users::select_by_username(rb, username).await {
         Ok(Some(user)) => {
-            println!("Found user: {:?}", user);
             // 验证用户密码
             if let Some(stored_password_hash) = user.password {
                 // 使用相同的哈希算法计算输入密码的哈希值
@@ -78,23 +79,27 @@ pub async fn login_user(username: &str, password: &str) -> Result<(String, Strin
                         let token = generate_token(username);
                         Ok((address, token)) // 返回用户的以太坊地址
                     } else {
-                        Err(Error::E("Address not found for user".into()))
+                        Err(UserError::DatabaseError(Error::E(
+                            "Database query error".into(),
+                        )))
                     }
                 } else {
                     // 密码不匹配
-                    Err(Error::E("Invalid password".into()))
+                    Err(UserError::InvalidPassword)
                 }
             } else {
-                Err(Error::E("Password hash not found".into()))
+                Err(UserError::InvalidPassword)
             }
         }
         Ok(None) => {
             println!("User not found");
-            Err(Error::E("Username does not exist".into()))
+            Err(UserError::UserNotFound)
         }
         Err(e) => {
             eprintln!("Error querying user: {:?}", e);
-            Err(Error::E("Database query error".into()))
+            Err(UserError::DatabaseError(Error::E(
+                "Database query error".into(),
+            )))
         }
     }
 }

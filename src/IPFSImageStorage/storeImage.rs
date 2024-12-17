@@ -157,8 +157,8 @@ pub async fn download_file_by_cid_as_base64(cid: &str) -> Result<String, Box<dyn
     let client = Client::new();
 
     let ipfs_api_url = "http://192.168.0.7:5001"; // 替换为你的 IPFS 节点地址
-    // 构造下载 URL（通过 IPFS API 或公共网关）
-    // let url = format!("{}/api/v0/cat?arg={}", ipfs_api_url, cid);
+                                                  // 构造下载 URL（通过 IPFS API 或公共网关）
+                                                  // let url = format!("{}/api/v0/cat?arg={}", ipfs_api_url, cid);
     let url = format!(
         "{}/api/v0/cat?arg={}",
         ipfs_api_url.trim_end_matches('/'),

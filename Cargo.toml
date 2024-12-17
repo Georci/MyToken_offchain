@@ -42,4 +42,5 @@ chrono = "0.4.38"
 actix-web = "4"
 actix-web-httpauth = "0.8.2"
 anyhow = "1.0.94"
+validator = { version = "0.19.0",  features = ["derive"] }
 
