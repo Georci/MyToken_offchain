@@ -1,3 +1,4 @@
+use crate::Error::{ApiError, BlockchainError, ImageError};
 use crate::IdentityAuthentication::Jwt::validate_token;
 use crate::Router::routers::AuthenticatedUser;
 use crate::Transaction::sendTx::Handler;
@@ -27,14 +28,14 @@ pub struct UploadImageInfoRequest {
 #[derive(Serialize, Deserialize)]
 pub struct UploadImageInfoResponse {
     result: ContractMethodResult,
-    message: String,
+    token_id: Vec<U256>,
 }
 
 #[post("/upload_imageInfo", data = "<image_info>")]
 pub async fn upload_imageInfo(
     image_info: Json<UploadImageInfoRequest>,
     auth_user: AuthenticatedUser,
-) -> Json<UploadImageInfoResponse> {
+) -> Result<Json<UploadImageInfoResponse>, Box<dyn ApiError>> {
     let func_call = ContractMethod::safeMint {
         to: image_info.to.parse().unwrap(),
         quantity: image_info.clone().quantity,
@@ -53,27 +54,58 @@ pub async fn upload_imageInfo(
     let user_address = "0x6d0d470a22c15a14817c51116932312a00ff00c8";
     let contract_address = "0xa6a0110367e24c541FC29124E8E89E3556263177";
     let handler: Handler =
-        Handler::initialize_contract(http_url, pk, user_address, contract_address)
-            .await
-            .unwrap();
+        match Handler::initialize_contract(http_url, pk, user_address, contract_address).await {
+            Ok(handler) => handler,
+            Err(_initialize_error) => {
+                return Err(Box::new(_initialize_error));
+            }
+        };
+
+    let find_call = ContractMethod::totalSupply;
+    let start_id_option = match handler.match_func(find_call.clone()).await {
+        Ok(id) => extract_u256(id),
+        Err(e) => {
+            return Err(Box::new(e));
+        }
+    };
+    let start_id = match start_id_option {
+        Some(id) => id,
+        None => {
+            return Err(Box::new(BlockchainError::ContractCallError(
+                "convert error".to_string(),
+            )));
+        }
+    };
     // 上传信息到链上
     match handler.match_func(func_call).await {
-        Ok(result) => Json(UploadImageInfoResponse {
-            result,
-            message: "succeed upload image to blockchain".to_string(),
-        }),
-
-        Err(error) => Json(UploadImageInfoResponse {
-            result: ContractMethodResult::Error,
-            message: "failed upload image to blockchain".to_string(),
-        }),
+        Ok(result) => {
+            let end_id_option = match handler.match_func(find_call.clone()).await {
+                Ok(id) => extract_u256(id),
+                Err(e) => {
+                    return Err(Box::new(e));
+                }
+            };
+            let end_id = match end_id_option {
+                Some(id) => id,
+                None => {
+                    return Err(Box::new(BlockchainError::ContractCallError(
+                        "convert error".to_string(),
+                    )));
+                }
+            };
+            let token_ids: Vec<U256> = U256Range::new(start_id, end_id).collect();
+            Ok(Json(UploadImageInfoResponse {
+                result,
+                token_id: token_ids,
+            }))
+        }
+        Err(error) => Err(Box::new(error)),
     }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct GetImageInfoRequest {
     image_id: u8,
-    message: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -85,7 +117,7 @@ pub struct GetImageInfoResponse {
 pub async fn get_imageInfo(
     image_info: Json<GetImageInfoRequest>,
     auth_user: AuthenticatedUser,
-) -> Json<GetImageInfoResponse> {
+) -> Result<Json<GetImageInfoResponse>, Box<dyn ApiError>> {
     let image_id = image_info.image_id;
 
     let func_call = ContractMethod::_imageInfo {
@@ -98,17 +130,54 @@ pub async fn get_imageInfo(
     let user_address = "0x6d0d470a22c15a14817c51116932312a00ff00c8";
     let contract_address = "0xa6a0110367e24c541FC29124E8E89E3556263177";
     let handler: Handler =
-        Handler::initialize_contract(http_url, pk, user_address, contract_address)
-            .await
-            .unwrap();
+        match Handler::initialize_contract(http_url, pk, user_address, contract_address).await {
+            Ok(handler) => handler,
+            Err(_initialize_error) => {
+                return Err(Box::new(_initialize_error));
+            }
+        };
+
     match handler.match_func(func_call).await {
-        Ok(imageInfo) => Json(GetImageInfoResponse {
+        Ok(imageInfo) => Ok(Json(GetImageInfoResponse {
             result: imageInfo,
             message: "succeed get image on blockchain".to_string(),
-        }),
-        Err(error) => Json(GetImageInfoResponse {
-            result: ContractMethodResult::Error,
-            message: "failed get image on blockchain".to_string(),
-        }),
+        })),
+        Err(error) => Err(Box::new(error)),
+    }
+}
+
+fn extract_u256(result: ContractMethodResult) -> Option<U256> {
+    match result {
+        ContractMethodResult::U256(value) => Some(value), // 提取 U256 值
+        _ => None,                                        // 其他情况返回 None
+    }
+}
+
+// 自定义范围迭代器
+struct U256Range {
+    current: U256,
+    end: U256,
+}
+
+impl U256Range {
+    fn new(start: U256, end: U256) -> Self {
+        Self {
+            current: start,
+            end,
+        }
+    }
+}
+
+impl Iterator for U256Range {
+    type Item = U256;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current < self.end {
+            let next = self.current;
+            self.current += U256::from(1); // 递增
+            Some(next)
+        } else {
+            None
+        }
     }
 }

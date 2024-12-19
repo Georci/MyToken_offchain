@@ -1,4 +1,5 @@
 use crate::DataBase::{get_db, Images, Users};
+use crate::Error::ImageError;
 use crate::IPFSImageStorage::storeImage::*;
 use base64::engine::general_purpose;
 use base64::Engine;
@@ -6,7 +7,6 @@ use image::{codecs::jpeg::JpegEncoder, DynamicImage, ImageFormat};
 use rbatis::Error;
 use serde::Deserialize;
 use serde_json::json;
-use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -19,24 +19,22 @@ struct PythonOutput {
 }
 
 // 调用外部 Python 脚本
-pub fn execute_watermark_base64(base64_image: String) -> Result<(String, String), String> {
+pub fn execute_watermark_base64(base64_image: String) -> Result<(String, String), ImageError> {
     let python_script = "/root/BlockchainImage/python-watermark/main_class.py";
 
     // 解码 Base64 图片为字节流
     let img_bytes = general_purpose::STANDARD
         .decode(&base64_image)
-        .map_err(|_| "Failed to decode base64 image".to_string())?;
+        .map_err(|_| ImageError::DecodeBytesError)?;
 
     // 将字节流转换为 DynamicImage
-    let img = image::load_from_memory(&img_bytes)
-        .map_err(|_| "Failed to decode image bytes".to_string())?;
+    let img = image::load_from_memory(&img_bytes).map_err(|_| ImageError::DecodeBytesError)?;
 
     // 将图片保存为 .jpg 格式并处理
     let mut img_bytes = Vec::new();
     let mut cursor = Cursor::new(&mut img_bytes);
-
     img.write_to(&mut cursor, ImageFormat::Jpeg)
-        .map_err(|_| "Failed to write image to bytes")?;
+        .map_err(|_| ImageError::EncodeBytesError)?;
 
     // 获取处理后的字节流并进行 Base64 编码
     let encoded_image = general_purpose::STANDARD.encode(&img_bytes);
@@ -46,28 +44,27 @@ pub fn execute_watermark_base64(base64_image: String) -> Result<(String, String)
         "base64_image": encoded_image
     });
 
-    // 调用外部 Python 脚本处理水印
+    // 启动 Python 脚本
     let mut child = Command::new("python3")
         .arg(python_script)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("Failed to spawn process");
+        .map_err(|_| ImageError::FailedStartAddWatermark)?;
 
     // 写入 JSON 数据到 Python 脚本的 stdin
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(json_data.to_string().as_bytes())
-            .map_err(|_| "Failed to write to stdin".to_string())?;
-        // 写入完毕后立即关闭stdin，告知python输入结束
-        drop(stdin);
+            .map_err(|_| ImageError::FailedStartAddWatermark)?;
+        drop(stdin); // 关闭 stdin
     }
 
+    // 读取 stdout 和 stderr
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-    // 使用线程并行读取 stdout 和 stderr
     let stdout_thread = thread::spawn(move || {
         let mut output = String::new();
         let mut reader = std::io::BufReader::new(stdout);
@@ -86,22 +83,20 @@ pub fn execute_watermark_base64(base64_image: String) -> Result<(String, String)
             .map_err(|e| format!("Failed to read stderr: {}", e))
     });
 
-    // 等待线程完成并收集结果
     let stdout_result = stdout_thread.join().unwrap();
     let stderr_result = stderr_thread.join().unwrap();
 
-    let output = stdout_result?;
-    let stderr = stderr_result?;
+    let output = stdout_result.map_err(|e| ImageError::WatermarkProcessError(e))?;
+    let stderr = stderr_result.map_err(|e| ImageError::WatermarkProcessError(e))?;
 
     // 等待子进程完成
-    let status = child
-        .wait()
-        .map_err(|_| "Failed to wait on child process".to_string())?;
+    let status = child.wait().expect("Failed to wait on child process");
 
     if status.success() {
         // 解析 Python 脚本的输出
-        let parsed_output: PythonOutput = serde_json::from_str(&output)
-            .map_err(|e| format!("Failed to parse JSON output: {}", e))?;
+        let parsed_output: PythonOutput = serde_json::from_str(&output).map_err(|e| {
+            ImageError::WatermarkProcessError(format!("Failed to parse JSON output: {}", e))
+        })?;
 
         if let (Some(wm_image), Some(wm)) = (
             parsed_output.watermarked_image,
@@ -111,19 +106,16 @@ pub fn execute_watermark_base64(base64_image: String) -> Result<(String, String)
         }
 
         if let Some(error_msg) = parsed_output.error {
-            Err(error_msg)
+            Err(ImageError::WatermarkProcessError(error_msg))
         } else {
-            Err("Python script did not return expected data".to_string())
+            Err(ImageError::WatermarkProcessError(
+                "Python script did not return expected data".to_string(),
+            ))
         }
     } else {
-        if !stderr.is_empty() {
-            Err(format!("Python script error: {}", stderr))
-        } else {
-            Err("Python script failed".to_string())
-        }
+        Err(ImageError::JsonParseError)
     }
 }
-
 // 调用外部 Python 脚本
 pub fn execute_watermark_jpg(img: DynamicImage) -> Result<(String, String), String> {
     let python_script = "/root/BlockchainImage/python-watermark/main_class.py";
@@ -228,7 +220,7 @@ pub async fn storage_image(
     watermarked_base64: String,
     watermark_base64: String,
     username: String,
-) -> Result<String, Error> {
+) -> Result<String, ImageError> {
     // 获取数据库连接池
     let rb = get_db().await;
     let mut user_id;
@@ -241,13 +233,15 @@ pub async fn storage_image(
             user.watermark_base64 = Some(watermark_base64.clone());
             println!("successed to save watermark {}", watermark_base64.clone());
         }
-        Err(_) => {
+        Err(e) => {
             println!("Failed to find user with username {}", username);
-            return Err(Error::E("Failed to find user with username".to_string()));
+            return Err(ImageError::DatabaseError(e));
         }
         _ => {
             println!("Failed to find user with username {}", username);
-            return Err(Error::E("Failed to find user with username".to_string()));
+            return Err(ImageError::DatabaseError(Error::E(
+                "Failed to find user with username".to_string(),
+            )));
         }
     }
 
@@ -260,7 +254,9 @@ pub async fn storage_image(
         }
         Err(e) => {
             println!("Failed to save picture in ipfs{}", e);
-            return Err(Error::E("Failed to save picture in ipfs".to_string()));
+            return Err(ImageError::IpfsError(
+                "Failed to save picture in ipfs".to_string(),
+            ));
         }
     };
 
@@ -270,7 +266,9 @@ pub async fn storage_image(
         cid: Some(image_cid.clone()),
         user_id,
     };
-    let data = Images::insert(rb, &image_table).await?;
+    let data = Images::insert(rb, &image_table)
+        .await
+        .map_err(|_| ImageError::DatabaseError(Error::E("Insert data error".to_string())))?;
     println!("insert = {}", json!(data));
     Ok(image_cid)
 }

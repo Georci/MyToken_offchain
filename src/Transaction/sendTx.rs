@@ -1,6 +1,7 @@
 // account: 0x6d0d470a22c15a14817c51116932312a00ff00c8
 // pk: 0x3ba5c6a17da00c75e9377e03ae98aa3dcdca7c4e537c84399125dfefa89be521
 // 部署合约
+use crate::Error::BlockchainError;
 /**
 图片信息存储在ipfs，还是区块链？
 // cid仅仅只是图片的一个标识，任何人都可以通过该标识访问nft图片，真的所有权还是通过合约控制的 ——如果是这样的话，那还是直接将图片id作为索引就好了
@@ -14,8 +15,6 @@ use alloy::network::NetworkWallet;
 use alloy::providers::fillers::{FillProvider, JoinFill, WalletFiller};
 use alloy::providers::{Identity, PendingTransactionBuilder, ReqwestProvider, WalletProvider};
 use alloy::{
-    contract::{ContractInstance, Interface},
-    dyn_abi::DynSolValue,
     network::{Ethereum, EthereumWallet, TransactionBuilder},
     primitives::{address, hex, Address, U256},
     providers::{Provider, ProviderBuilder, RootProvider},
@@ -64,10 +63,14 @@ impl Handler {
         wallet_pk: &str,
         user_address: &str,
         contract_address: &str,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, BlockchainError> {
         // 1. 获取 provider
-        let rpc_url = http_url.parse()?;
-        let signer: PrivateKeySigner = wallet_pk.parse()?;
+        let rpc_url = http_url.parse().map_err(|_| {
+            BlockchainError::ContractInitializeError("parse http url failed".to_string())
+        })?;
+        let signer: PrivateKeySigner = wallet_pk.parse().map_err(|_| {
+            BlockchainError::ContractInitializeError("parse private_Key failed".to_string())
+        })?;
         let wallet = EthereumWallet::from(signer);
         let provider = ProviderBuilder::new().on_http(rpc_url);
 
@@ -76,15 +79,21 @@ impl Handler {
 
         if Address::from_str(user_address).unwrap() != wallet_address {
             println!("privateKey and user_address are not matched!");
-            process::exit(1)
+            return Err(BlockchainError::ContractInitializeError(
+                "input address does not match the wallet's address.".to_string(),
+            ));
         }
 
         // 验证连接
-        let latest_block = provider.get_block_number().await?;
+        let latest_block = provider.get_block_number().await.map_err(|_| {
+            BlockchainError::ContractInitializeError("connect blockchain failed".to_string())
+        })?;
         println!("Connected to blockchain. Latest block: {}", latest_block);
 
         // 2. 格式化合约地址
-        let address = Address::parse_checksummed(contract_address, None).expect("valid checksum");
+        let address = Address::parse_checksummed(contract_address, None).map_err(|_| {
+            BlockchainError::ContractInitializeError("parse contract_address failed".to_string())
+        })?;
 
         // 3. 生成合约实例
         let contract: ImageTokenInstance<Http<Client>, ReqwestProvider> =
@@ -103,7 +112,7 @@ impl Handler {
     pub async fn upload_info(
         &self,
         func: ContractMethod,
-    ) -> Result<ContractMethodResult, Box<dyn std::error::Error>> {
+    ) -> Result<ContractMethodResult, BlockchainError> {
         let mut contract_method_result: ContractMethodResult = ContractMethodResult::Defalut;
 
         let uer_address = self.user_address.clone();
@@ -132,7 +141,12 @@ impl Handler {
                         let builder = contract
                             .safeMint_1(to, quantity, _tokenURIs)
                             .from(uer_address);
-                        let result = builder.send().await?;
+                        let result = builder.send().await.map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send safeMint transaction: {}",
+                                e
+                            ))
+                        })?;
                         result
                     } else {
                         let builder = contract
@@ -148,10 +162,20 @@ impl Handler {
                                 submissionReceivers.unwrap(),
                             )
                             .from(uer_address);
-                        let result = builder.send().await?;
+                        let result = builder.send().await.map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send safeMint transaction: {}",
+                                e
+                            ))
+                        })?;
                         result
                     };
-                    let hash = tx_builder.watch().await?;
+                    let hash = tx_builder.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch safeMint transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 _ => {
@@ -165,55 +189,153 @@ impl Handler {
     pub async fn match_func(
         &self,
         func: ContractMethod,
-    ) -> Result<ContractMethodResult, Box<dyn std::error::Error>> {
+    ) -> Result<ContractMethodResult, BlockchainError> {
         let mut contract_method_result: ContractMethodResult = ContractMethodResult::Defalut;
+
+        let user_address = self.user_address.clone();
         match self.contract.clone() {
             None => {
                 println!("please intialize contract first")
             }
             Some(contract) => match func {
                 ContractMethod::name => {
-                    let result = contract.name().call().await?._0;
+                    let result = contract
+                        .name()
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send name transaction: {}",
+                                e
+                            ))
+                        })?
+                        ._0;
                     contract_method_result = ContractMethodResult::String(result);
                 }
                 ContractMethod::symbol => {
-                    let result = contract.symbol().call().await?._0;
+                    let result = contract
+                        .symbol()
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send symbol transaction: {}",
+                                e
+                            ))
+                        })?
+                        ._0;
                     contract_method_result = ContractMethodResult::String(result);
                 }
                 ContractMethod::totalSupply => {
-                    let result = contract.totalSupply().call().await?.result;
+                    let result = contract
+                        .totalSupply()
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send totalSupply transaction: {}",
+                                e
+                            ))
+                        })?
+                        .result;
                     contract_method_result = ContractMethodResult::U256(result);
                     println!("contract_method_result is {:?}", contract_method_result);
                 }
                 ContractMethod::balanceOf { owner } => {
-                    let result = contract.balanceOf(owner).call().await?._0;
+                    let result = contract
+                        .balanceOf(owner)
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send balanceOf transaction: {}",
+                                e
+                            ))
+                        })?
+                        ._0;
                     contract_method_result = ContractMethodResult::U256(result);
                 }
                 ContractMethod::ownerOf { tokenId } => {
-                    let result = contract.ownerOf(tokenId).call().await?._0;
+                    let result = contract
+                        .ownerOf(tokenId)
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send ownerOf transaction: {}",
+                                e
+                            ))
+                        })?
+                        ._0;
                     contract_method_result = ContractMethodResult::Address(result);
                 }
                 ContractMethod::isApprovedForAll { owner, operator } => {
-                    let result = contract.isApprovedForAll(owner, operator).call().await?._0;
+                    let result = contract
+                        .isApprovedForAll(owner, operator)
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send isApprovedForAll transaction: {}",
+                                e
+                            ))
+                        })?
+                        ._0;
                     contract_method_result = ContractMethodResult::Bool(result);
                 }
                 ContractMethod::supportsInterface { interfaceId } => {
-                    let result = contract.supportsInterface(interfaceId).call().await?._0;
+                    let result = contract
+                        .supportsInterface(interfaceId)
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send supportsInterface transaction: {}",
+                                e
+                            ))
+                        })?
+                        ._0;
                     contract_method_result = ContractMethodResult::Bool(result);
                 }
                 ContractMethod::tokenURI { tokenId } => {
-                    let result = contract.tokenURI(tokenId).call().await?._0;
+                    let result = contract
+                        .tokenURI(tokenId)
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send tokenURI transaction: {}",
+                                e
+                            ))
+                        })?
+                        ._0;
                     contract_method_result = ContractMethodResult::String(result);
                 }
                 ContractMethod::_imageInfo { tokenId } => {
-                    let result = contract._imageInfo(tokenId).call().await?.imageInfo;
+                    let result = contract
+                        ._imageInfo(tokenId)
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send _imageInfo transaction: {}",
+                                e
+                            ))
+                        })?
+                        .imageInfo;
                     contract_method_result = ContractMethodResult::ImageInfo(result);
                 }
                 ContractMethod::_imageSaleHistory { tokenId, index } => {
                     let result = contract
                         ._imageSaleHistory(tokenId, index)
                         .call()
-                        .await?
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send _imageSaleHistory transaction: {}",
+                                e
+                            ))
+                        })?
                         .saleInfo;
                     contract_method_result = ContractMethodResult::SaleInfo(result);
                 }
@@ -228,14 +350,31 @@ impl Handler {
                             contract
                                 .safeTransferFrom_0(from, to, tokenId)
                                 .send()
-                                .await?
+                                .await
+                                .map_err(|e| {
+                                    BlockchainError::SendTransactionError(format!(
+                                        "Failed to send safeTransferFrom_0 transaction: {}",
+                                        e
+                                    ))
+                                })?
                         } else {
                             contract
                                 .safeTransferFrom_1(from, to, tokenId, amount.unwrap())
                                 .send()
-                                .await?
+                                .await
+                                .map_err(|e| {
+                                    BlockchainError::SendTransactionError(format!(
+                                        "Failed to send safeTransferFrom_1 transaction: {}",
+                                        e
+                                    ))
+                                })?
                         };
-                    let hash = result.watch().await?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch safeTransferFrom transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::safeTransferFromWithValue {
@@ -247,30 +386,86 @@ impl Handler {
                     let result = contract
                         .safeTransferFromWithValue(from, to, tokenId, value)
                         .send()
-                        .await?;
-                    let hash = result.watch().await?;
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send safeTransferFromWithValue transaction: {}",
+                                e
+                            ))
+                        })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch safeTransferFromWithValue transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::transferFrom { from, to, tokenId } => {
-                    let result = contract.transferFrom(from, to, tokenId).send().await?;
-                    let hash = result.watch().await?;
+                    let result = contract
+                        .transferFrom(from, to, tokenId)
+                        .send()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send transferFrom transaction: {}",
+                                e
+                            ))
+                        })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch transferFrom transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::approve { to, tokenId } => {
-                    let result = contract.approve(to, tokenId).send().await?;
-                    let hash = result.watch().await?;
+                    let result = contract.approve(to, tokenId).send().await.map_err(|e| {
+                        BlockchainError::SendTransactionError(format!(
+                            "Failed to send approve transaction: {}",
+                            e
+                        ))
+                    })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch approve transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::getApproved { tokenId } => {
-                    let result = contract.getApproved(tokenId).call().await?._0;
+                    let result = contract
+                        .getApproved(tokenId)
+                        .call()
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send getApproved transaction: {}",
+                                e
+                            ))
+                        })?
+                        ._0;
                     contract_method_result = ContractMethodResult::Address(result);
                 }
                 ContractMethod::setApprovalForAll { operator, approved } => {
                     let result = contract
                         .setApprovalForAll(operator, approved)
                         .send()
-                        .await?;
-                    let hash = result.watch().await?;
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send setApprovalForAll transaction: {}",
+                                e
+                            ))
+                        })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch setApprovalForAll transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::modifyImageInfo {
@@ -297,8 +492,19 @@ impl Handler {
                             submissionReceiver,
                         )
                         .send()
-                        .await?;
-                    let hash = result.watch().await?;
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send modifyImageInfo transaction: {}",
+                                e
+                            ))
+                        })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch modifyImageInfo transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::modifyCaptureInfo {
@@ -310,8 +516,19 @@ impl Handler {
                     let result = contract
                         .modifyCaptureInfo(tokenId, captureTime, captureDevice, captureCompany)
                         .send()
-                        .await?;
-                    let hash = result.watch().await?;
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send modifyCaptureInfo transaction: {}",
+                                e
+                            ))
+                        })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch modifyCaptureInfo transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::safeMint {
@@ -325,10 +542,25 @@ impl Handler {
                     submissionTimes,
                     submissionReceivers,
                 } => {
-                    let result = if watermarks.is_none() {
-                        contract.safeMint_1(to, quantity, _tokenURIs).send().await?
+                    let tx_builder = if watermarks.is_none()
+                        && captureTimes.is_none()
+                        && captureDevices.is_none()
+                        && captureCompanies.is_none()
+                        && submissionTimes.is_none()
+                        && submissionReceivers.is_none()
+                    {
+                        let builder = contract
+                            .safeMint_1(to, quantity, _tokenURIs)
+                            .from(user_address.clone());
+                        let result = builder.send().await.map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send safeMint_1 transaction: {}",
+                                e
+                            ))
+                        })?;
+                        result
                     } else {
-                        contract
+                        let builder = contract
                             .safeMint_0(
                                 to,
                                 quantity,
@@ -340,10 +572,21 @@ impl Handler {
                                 submissionTimes.unwrap(),
                                 submissionReceivers.unwrap(),
                             )
-                            .send()
-                            .await?
+                            .from(user_address.clone());
+                        let result = builder.send().await.map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send safeMint_0 transaction: {}",
+                                e
+                            ))
+                        })?;
+                        result
                     };
-                    let hash = result.watch().await?;
+                    let hash = tx_builder.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch safeMint transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::safeBatchTransferFrom {
@@ -356,26 +599,68 @@ impl Handler {
                     let result = contract
                         .safeBatchTransferFrom(by, from, to, tokenIds, data)
                         .send()
-                        .await?;
-                    let hash = result.watch().await?;
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send safeBatchTransferFrom transaction: {}",
+                                e
+                            ))
+                        })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch safeBatchTransferFrom transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::batchTransferFrom { from, to, tokenIds } => {
                     let result = contract
                         .batchTransferFrom(from, to, tokenIds)
                         .send()
-                        .await?;
-                    let hash = result.watch().await?;
+                        .await
+                        .map_err(|e| {
+                            BlockchainError::SendTransactionError(format!(
+                                "Failed to send batchTransferFrom transaction: {}",
+                                e
+                            ))
+                        })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch batchTransferFrom transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::burn { tokenId } => {
-                    let result = contract.burn(tokenId).send().await?;
-                    let hash = result.watch().await?;
+                    let result = contract.burn(tokenId).send().await.map_err(|e| {
+                        BlockchainError::SendTransactionError(format!(
+                            "Failed to send burn transaction: {}",
+                            e
+                        ))
+                    })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch burn transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
                 ContractMethod::batchBurn { tokenIds } => {
-                    let result = contract.batchBurn(tokenIds).send().await?;
-                    let hash = result.watch().await?;
+                    let result = contract.batchBurn(tokenIds).send().await.map_err(|e| {
+                        BlockchainError::SendTransactionError(format!(
+                            "Failed to send batchBurn transaction: {}",
+                            e
+                        ))
+                    })?;
+                    let hash = result.watch().await.map_err(|e| {
+                        BlockchainError::WatchTransactionError(format!(
+                            "Failed to watch batchBurn transaction: {}",
+                            e
+                        ))
+                    })?;
                     contract_method_result = ContractMethodResult::TxHash(hash);
                 }
             },

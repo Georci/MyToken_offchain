@@ -24,6 +24,7 @@ pub struct RegisterRequest {
     username: String,
     #[validate(length(min = 3, message = "Password must be at least 3 characters long"))]
     password: String,
+    company_name: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,9 +55,8 @@ struct ErrorResponse {
 // 已测试接口
 #[post("/register", format = "json", data = "<register_request>")]
 pub async fn register(
-    register_request: Json<RegisterRequest>
-) -> Result<Json<RegisterResponse>, Box<dyn ApiError>>
-{
+    register_request: Json<RegisterRequest>,
+) -> Result<Json<RegisterResponse>, Box<dyn ApiError>> {
     // Validate the incoming request data
     if let Err(validation_errors) = register_request.validate() {
         // Map `validation_errors` to `RequestError`
@@ -65,7 +65,12 @@ pub async fn register(
         }
     }
 
-    let result = register_user(&register_request.username, &register_request.password).await;
+    let result = register_user(
+        &register_request.username,
+        &register_request.password,
+        &register_request.company_name,
+    )
+    .await;
     match result {
         Ok((address, private_key)) => Ok(Json(RegisterResponse {
             address,
@@ -81,8 +86,7 @@ pub async fn register(
 #[post("/login", format = "json", data = "<login_request>")]
 pub async fn login(
     login_request: Json<LoginRequest>,
-    rb: &State<Arc<Mutex<RBatis>>>,
-) -> Result<Json<LoginResponse>, status::Custom<Json<LoginResponse>>> {
+) -> Result<Json<LoginResponse>, Box<dyn ApiError>> {
     let result = login_user(&login_request.username, &login_request.password).await;
     match result {
         Ok((address, token)) => Ok(Json(LoginResponse {
@@ -91,13 +95,7 @@ pub async fn login(
         })),
         Err(error) => {
             eprintln!("Error: {}", error);
-            Err(status::Custom(
-                Status::BadRequest,
-                Json(LoginResponse {
-                    address: None,
-                    token: None,
-                }),
-            ))
+            Err(Box::new(error))
         }
     }
 }

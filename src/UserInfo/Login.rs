@@ -18,7 +18,11 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 // 注册用户
-pub async fn register_user(username: &str, password: &str) -> Result<(String, String), UserError> {
+pub async fn register_user(
+    username: &str,
+    password: &str,
+    company_name: &str,
+) -> Result<(String, String), UserError> {
     // 获取数据库连接池
     let rb = get_db().await;
 
@@ -36,7 +40,7 @@ pub async fn register_user(username: &str, password: &str) -> Result<(String, St
             // 插入用户数据
             let table = Users {
                 id: None,
-                company_name: Some("Gzhu".to_string()),
+                company_name: Some(company_name.to_string()),
                 username: Some(username.to_string()),
                 password: Some(password_hash.to_string()),
                 watermark_base64: Some("".to_string()),
@@ -110,7 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_user() {
-        let (userAddress, userPk) = register_user("Krooosss", "123").await.unwrap();
+        let (userAddress, userPk) = register_user("Krooosss", "123", "Gzhu").await.unwrap();
     }
 
     #[tokio::test]

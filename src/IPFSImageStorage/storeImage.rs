@@ -1,3 +1,4 @@
+use crate::Error::ImageError;
 use base64::engine::general_purpose;
 use base64::Engine;
 use reqwest::multipart;
@@ -152,7 +153,7 @@ pub async fn download_file_by_cid(
 }
 
 /// 根据 CID 从 IPFS 下载文件并返回 Base64 编码的字符串
-pub async fn download_file_by_cid_as_base64(cid: &str) -> Result<String, Box<dyn Error>> {
+pub async fn download_file_by_cid_as_base64(cid: &str) -> Result<String, ImageError> {
     // 创建 HTTP 客户端
     let client = Client::new();
 
@@ -168,13 +169,22 @@ pub async fn download_file_by_cid_as_base64(cid: &str) -> Result<String, Box<dyn
     println!("Request URL: {}", url);
 
     // 发送 GET 请求下载文件
-    let res = client.post(&url).send().await?;
+    let res = client
+        .post(&url)
+        .send()
+        .await
+        .map_err(|e| ImageError::IpfsError(e.to_string()))?;
     if !res.status().is_success() {
-        return Err(format!("Failed to download file: HTTP {}", res.status()).into());
+        return Err(ImageError::IpfsError(
+            format!("Failed to download file: HTTP {}", res.status()).into(),
+        ));
     }
 
     // 获取文件内容并转换为 Base64
-    let content = res.bytes().await?;
+    let content = res
+        .bytes()
+        .await
+        .map_err(|e| ImageError::IpfsError(e.to_string()))?;
     let base64_encoded = general_purpose::STANDARD.encode(content);
 
     Ok(base64_encoded)
