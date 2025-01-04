@@ -37,10 +37,12 @@ rbdc-mysql={version="4.5.13", default-features = false, features = ["tls-rustls"
 sha2 = "0.10.8"
 sqlx = { version = "0.8.2", features = ["sqlite", "runtime-tokio-native-tls"] }
 rocket = { version = "0.5.1", features = ["json"] }
+rocket_cors = "0.6.0"
 jsonwebtoken = "9.3.0"
 chrono = "0.4.38"
 actix-web = "4"
 actix-web-httpauth = "0.8.2"
 anyhow = "1.0.94"
 validator = { version = "0.19.0",  features = ["derive"] }
+async-trait = "0.1.83"
 
