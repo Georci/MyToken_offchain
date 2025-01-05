@@ -9,7 +9,7 @@ use rbatis::RBatis;
 use rocket::form::FromForm;
 use rocket::http::Status;
 use rocket::response::{status, Responder};
-use rocket::{launch, post, routes, tokio};
+use rocket::{launch, post, routes, tokio, options};
 use rocket::{serde::json::Json, State};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -83,7 +83,14 @@ pub async fn register(
 
 // 已测试接口
 // Web API 处理函数
-#[post("/login", format = "json", data = "<login_request>")]
+
+#[options("/login")]
+pub async fn login_options(
+) -> Status {
+    Status::Ok
+}
+
+#[options("/login", format = "json", data = "<login_request>")]
 pub async fn login(
     login_request: Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, Box<dyn ApiError>> {

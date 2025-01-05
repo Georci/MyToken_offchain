@@ -62,6 +62,7 @@ async fn rocket() -> _ {
         .mount(
         "/",
         routes![
+            login_options,
             login,
             register,
             upload_image,
